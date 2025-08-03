@@ -4,16 +4,16 @@ class Optimizer:
     def __init__(self):
         raise NotImplementedError
 
-    def step(self, W, b, dW, db, lr, i):
+    def step(self, lr, parameters, gradients):
         raise NotImplementedError
     
 class SGD(Optimizer):
     def __init__(self):
         pass
 
-    def step(self, W, b, dW, db, lr, i):
-        W -= lr * dW
-        b -= lr * db
+    def step(self, lr, parameters, gradients):
+        for i in range(len(parameters)):
+            parameters[i] -= lr * gradients[i]
 
 class SGDMomentum(Optimizer):
     def __init__(self, layers, rho=0.9):
@@ -26,6 +26,9 @@ class SGDMomentum(Optimizer):
             self.bias_velocities.append(np.zeros((layers[i + 1], 1)))
     
     def step(self, W, b, dW, db, lr, i):
+        # for i in range(len(parameters)):
+        #     velocities = []
+
         self.weight_velocities[i] = self.rho * self.weight_velocities[i] - lr * dW
         self.bias_velocities[i] = self.rho * self.bias_velocities[i] - lr * db
         W += self.weight_velocities[i]
