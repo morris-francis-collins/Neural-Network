@@ -1,4 +1,5 @@
 import numpy as np
+from scipy import signal
 
 class Layer:
     def __init__(self):
@@ -7,29 +8,26 @@ class Layer:
     def forward(self, X):
         raise NotImplementedError
 
-    def backward(self, X):
+    def backward(self, X, lr, optimizer):
         raise NotImplementedError
-
-    def update_parameters(self):
-        raise NotImplementedError
-    
+        
 class Linear(Layer):
-    def __init__(self, input_features, output_features):        
-        self.weights = np.random.randn(output_features, input_features) * np.sqrt(2.0 / input_features)
-        self.biases = np.zeros((output_features, 1))
+    def __init__(self, input_features, output_features):
+        self.weights = np.random.randn(input_features, output_features) * np.sqrt(2.0 / input_features)
+        self.biases = np.zeros((1, output_features))
         self.parameters = [self.weights, self.biases]
 
     def forward(self, X):
         self.prev_activation = X
-        return self.weights @ X + self.biases
+        return X @ self.weights + self.biases
 
     def backward(self, X, scheduler, optimizer):
-        m = X.shape[1]
-        dW = (X @ self.prev_activation.T) / m
-        db = np.sum(X, axis=1, keepdims=True) / m
+        m = X.shape[0]
+        dW = (self.prev_activation.T @ X) / m
+        db = np.sum(X, axis=0, keepdims=True) / m
         gradients = [dW, db]
 
-        nxt = self.weights.T @ X
+        nxt = X @ self.weights.T
 
         lr = scheduler.step()
         optimizer.step(lr, self.parameters, gradients)
@@ -43,14 +41,26 @@ class ReLU(Layer):
     
     def backward(self, X, lr, optimizer):
         return X * (self.prev_z > 0)
+
+class Sigmoid(Layer):
+    def sigmoid(self, X):
+        return np.where(X > 0, 1 / (1 + np.exp(-X)), np.exp(X) / (1 + np.exp(X)))
+        
+    def forward(self, X):
+        self.prev_z = X
+        return self.sigmoid(X)
+    
+    def backward(self, X, lr, optimizer):
+        sigmoid = self.sigmoid(self.prev_z)
+        return X * sigmoid * (1 - sigmoid)
     
 class SoftmaxCrossEntropy(Layer):
     def forward(self, X, Y):
-        X -= np.max(X, axis=0, keepdims=True)
+        X -= np.max(X, axis=1, keepdims=True)
         exp_X = np.exp(X)
-        self.probabilities = exp_X / np.sum(exp_X, axis=0, keepdims=True)
+        self.probabilities = exp_X / np.sum(exp_X, axis=1, keepdims=True)
 
-        m = X.shape[1]
+        m = X.shape[0]
         log_probabilities = np.log(self.probabilities + 1e-10)
         loss = -np.sum(Y * log_probabilities) / m
     
@@ -58,3 +68,17 @@ class SoftmaxCrossEntropy(Layer):
 
     def backward(self, Y):
         return self.probabilities - Y
+    
+class Conv2D(Layer):
+    def __init__(self, input_channels, output_channels, kernel_size, padding):
+        self.input_channels = input_channels
+        self.output_channels = output_channels
+        self.weights = np.random.randn(output_channels, input_channels, kernel_size, kernel_size)
+        self.biases = np.zeros((output_channels, kernel_size, kernel_size))
+
+    def forward(self, X):
+        self.prev = X
+        # res = np.zeros(X.shape[0], )
+
+    def backward(self, X):
+        pass

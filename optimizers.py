@@ -16,82 +16,78 @@ class SGD(Optimizer):
             parameters[i] -= lr * gradients[i]
 
 class SGDMomentum(Optimizer):
-    def __init__(self, layers, rho=0.9):
-        self.weight_velocities = []
-        self.bias_velocities = []
+    def __init__(self, rho=0.9):
+        self.velocities = {}
         self.rho = rho
     
-        for i in range(len(layers) - 1):
-            self.weight_velocities.append(np.zeros((layers[i + 1], layers[i])))
-            self.bias_velocities.append(np.zeros((layers[i + 1], 1)))
-    
-    def step(self, W, b, dW, db, lr, i):
-        # for i in range(len(parameters)):
-        #     velocities = []
+    def step(self, lr, parameters, gradients):
+        for i in range(len(parameters)):
+            parameter = parameters[i]
+            parameter_id = id(parameter)
 
-        self.weight_velocities[i] = self.rho * self.weight_velocities[i] - lr * dW
-        self.bias_velocities[i] = self.rho * self.bias_velocities[i] - lr * db
-        W += self.weight_velocities[i]
-        b += self.bias_velocities[i]
+            if parameter_id not in self.velocities:
+                self.velocities[parameter_id] = np.zeros_like(parameter)
+
+            self.velocities[parameter_id] = self.rho * self.velocities[parameter_id] - lr * gradients[i]
+            parameter += self.velocities[parameter_id]
 
 class AdaGrad(Optimizer):
-    def __init__(self, layers):
-        self.weight_velocities = []
-        self.bias_velocities = []
-        self.epsilon = 1e-9
-    
-        for i in range(len(layers) - 1):
-            self.weight_velocities.append(np.zeros((layers[i + 1], layers[i])))
-            self.bias_velocities.append(np.zeros((layers[i + 1], 1)))
-    
-    def step(self, W, b, dW, db, lr, i):
-        self.weight_velocities[i] += np.square(dW)
-        self.bias_velocities[i] += np.square(db)
-        W -= lr * dW / (self.epsilon + np.sqrt(self.weight_velocities[i]))
-        b -= lr * db / (self.epsilon + np.sqrt(self.bias_velocities[i]))
+    def __init__(self):
+        self.v = {}
+        self.epsilon = 1e-8
+        
+    def step(self, lr, parameters, gradients):
+        for i in range(len(parameters)):
+            parameter = parameters[i]
+            parameter_id = id(parameter)
+
+            if parameter_id not in self.v:
+                self.v[parameter_id] = np.zeros_like(parameter)
+
+            self.v[parameter_id] += np.square(gradients[i])
+            parameter -= lr * gradients[i] / (self.epsilon + np.sqrt(self.v[parameter_id]))
 
 class RMSProp(Optimizer):
-    def __init__(self, layers, beta=0.99):
-        self.weight_velocities = []
-        self.bias_velocities = []
+    def __init__(self, beta=0.999):
+        self.v = {}
         self.beta = beta
-        self.epsilon = 1e-9
-    
-        for i in range(len(layers) - 1):
-            self.weight_velocities.append(np.zeros((layers[i + 1], layers[i])))
-            self.bias_velocities.append(np.zeros((layers[i + 1], 1)))
-    
-    def step(self, W, b, dW, db, lr, i):
-        self.weight_velocities[i] = self.beta * self.weight_velocities[i] + (1 - self.beta) * np.square(dW)
-        self.bias_velocities[i] = self.beta * self.bias_velocities[i] + (1 - self.beta) * np.square(db)
+        self.epsilon = 1e-8
 
-        W -= lr * dW / (self.epsilon + np.sqrt(self.weight_velocities[i]))
-        b -= lr * db / (self.epsilon + np.sqrt(self.bias_velocities[i]))
+    def step(self, lr, parameters, gradients):
+        for i in range(len(parameters)):
+            parameter = parameters[i]
+            parameter_id = id(parameter)
+
+            if parameter_id not in self.v:
+                self.v[parameter_id] = np.zeros_like(parameter)
+
+            self.v[parameter_id] = self.beta * np.square(gradients[i]) + (1 - self.beta) * np.square(gradients[i])
+            parameter -= lr * gradients[i] / (self.epsilon + np.sqrt(self.v[parameter_id]))
 
 class Adam(Optimizer):
-    def __init__(self, layers, beta_m=0.99, beta_v=0.999):
-        self.m_w, self.v_w = [], []
-        self.m_b, self.v_b = [], []
-        self.beta_m = beta_m
+    def __init__(self, beta_v=0.999, beta_m=0.9):
+        self.v = {}
+        self.m = {}
         self.beta_v = beta_v
+        self.beta_m = beta_m
         self.t = 1
-        self.epsilon = 1e-9
-
-        for i in range(len(layers) - 1):
-            self.m_w.append(np.zeros((layers[i + 1], layers[i])))
-            self.v_w.append(np.zeros((layers[i + 1], layers[i])))
-            self.m_b.append(np.zeros((layers[i + 1], 1)))
-            self.v_b.append(np.zeros((layers[i + 1], 1)))
+        self.epsilon = 1e-8
     
-    def step(self, W, b, dW, db, lr, i):
-        self.m_w[i] = self.beta_m * self.m_w[i] + (1 - self.beta_m) * dW
-        self.v_w[i] = self.beta_v * self.v_w[i] + (1 - self.beta_v) * np.square(dW)
-        self.m_b[i] = self.beta_m * self.m_b[i] + (1 - self.beta_m) * db
-        self.v_b[i] = self.beta_v * self.v_b[i] + (1 - self.beta_v) * np.square(db)
+    def step(self, lr, parameters, gradients):
+        for i in range(len(parameters)):
+            parameter = parameters[i]
+            parameter_id = id(parameter)
 
-        m_correction = 1 / (1 - self.beta_m ** self.t)
-        v_correction = 1 / (1 - self.beta_v ** self.t)
+            if parameter_id not in self.v:
+                self.v[parameter_id] = np.zeros_like(parameter)
+                self.m[parameter_id] = np.zeros_like(parameter)
+
+            self.v[parameter_id] = self.beta_v * self.v[parameter_id] + (1 - self.beta_v) * np.square(gradients[i])
+            self.m[parameter_id] = self.beta_m * self.m[parameter_id] + (1 - self.beta_m) * gradients[i]
+
+            v_hat = self.v[parameter_id] / (1 - self.beta_v ** self.t)
+            m_hat = self.m[parameter_id] / (1 - self.beta_m ** self.t)
+
+            parameter -= lr * m_hat / (self.epsilon + np.sqrt(v_hat))
+
         self.t += 1
-    
-        W -= lr * m_correction * self.m_w[i] / (self.epsilon + np.sqrt(v_correction * self.v_w[i]))
-        b -= lr * m_correction * self.m_b[i] / (self.epsilon + np.sqrt(v_correction * self.v_b[i]))
