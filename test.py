@@ -3,7 +3,8 @@ import struct
 import matplotlib.pyplot as plt
 from schedulers import ExponentialDecay
 from optimizers import SGD, SGDMomentum, AdaGrad, RMSProp, Adam
-from layers import Linear, ReLU, Sigmoid, SoftmaxCrossEntropy
+from layers import Linear, ReLU, Sigmoid, SoftmaxCrossEntropy, Conv2D, Flatten, MaxPool2D
+np.random.seed(32)
 
 def load_mnist_dataset():
     """Load all MNIST files"""
@@ -36,7 +37,6 @@ class NeuralNetwork:
         self.optimizer = optimizer
         self.weights = []
         self.biases = []
-        np.random.seed(32)
 
         self.loss_function = SoftmaxCrossEntropy()
 
@@ -60,14 +60,25 @@ print("making")
 print(data['train_images'].shape)
 
 layers = [
-    Linear(784, 256), 
+    Conv2D(1, 2),
     ReLU(),
-    Linear(256, 128),
+    Conv2D(2, 4),
     ReLU(),
-    Linear(128, 32),
+    MaxPool2D(),
+    Flatten(),
+    Linear(4 * 14 * 14, 128),
     ReLU(),
-    Linear(32, 10)
+    Linear(128, 10)
     ]
+
+# layers = [
+#     Flatten(),
+#     Linear(784, 128), 
+#     ReLU(),
+#     Linear(128, 32),
+#     ReLU(),
+#     Linear(32, 10)
+#     ]
 
 scheduler = ExponentialDecay(lr_0=0.001, decay_factor=0.99995)
 
@@ -78,7 +89,7 @@ rmsprop_optimizer = RMSProp()
 adam_optimizer = Adam()
 
 nn0 = NeuralNetwork("SGD", layers, ExponentialDecay(lr_0=0.01, decay_factor=0.9999), sgd_optimizer)
-nn1 = NeuralNetwork("Momentum", layers, ExponentialDecay(lr_0=0.1, decay_factor=0.9999), momentum_optimizer)
+nn1 = NeuralNetwork("Momentum", layers, ExponentialDecay(lr_0=0.01, decay_factor=0.9999), momentum_optimizer)
 nn2 = NeuralNetwork("AdaGrad", layers, ExponentialDecay(lr_0=0.005, decay_factor=0.99995), adagrad_optimizer)
 nn3 = NeuralNetwork("RMSProp", layers, ExponentialDecay(lr_0=0.0005, decay_factor=0.99995), rmsprop_optimizer)
 nn4 = NeuralNetwork("Adam", layers, ExponentialDecay(lr_0=0.002, decay_factor=0.99995), adam_optimizer)
@@ -88,10 +99,10 @@ accuracies = [[] for _ in range(len(neural_networks))]
 training_loss = [[] for _ in range(len(neural_networks))]
 test_loss = [[] for _ in range(len(neural_networks))]
 
-epochs = 10
-training_size = 6000
-test_size = 1000
-batch_size = 128
+epochs = 50
+training_size = 500
+test_size = 50
+batch_size = 64
 
 for epoch in range(epochs):
     perm = np.random.permutation(training_size)
@@ -111,7 +122,8 @@ for epoch in range(epochs):
             end = min(start + batch_size, test_size)
             effective_batch_size = end - start
 
-            Xb_test = test_images[start : end].reshape(-1, 784) / 255
+            Xb_test = test_images[start : end].reshape(-1, 1, 28, 28) / 255
+            # Xb_test = test_images[start : end].reshape(-1, 784) / 255
             Yb_indices = test_labels[start : end]
             Yb_test = np.eye(10)[Yb_indices]
 
@@ -120,7 +132,7 @@ for epoch in range(epochs):
 
             predictions = np.argmax(probabilities, axis=1)
             correct += np.sum(predictions == Yb_indices)
-
+            
         test_loss[i].append(total_loss / test_size)
         total_loss = 0
 
@@ -128,7 +140,8 @@ for epoch in range(epochs):
             end = min(start + batch_size, training_size)
             effective_batch_size = end - start
 
-            Xb = train_images[start : end].reshape(-1, 784) / 255.0
+            Xb = train_images[start : end].reshape(-1, 1, 28, 28) / 255
+            # Xb = train_images[start : end].reshape(-1, 784) / 255
             Yb_indices = train_labels[start : end]
             Yb = np.eye(10)[Yb_indices]
             

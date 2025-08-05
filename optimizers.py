@@ -26,9 +26,11 @@ class SGDMomentum(Optimizer):
             parameter_id = id(parameter)
 
             if parameter_id not in self.velocities:
+                # print("parameter shae", i, parameter.shape)
                 self.velocities[parameter_id] = np.zeros_like(parameter)
 
             self.velocities[parameter_id] = self.rho * self.velocities[parameter_id] - lr * gradients[i]
+            # print(parameter.shape, i)
             parameter += self.velocities[parameter_id]
 
 class AdaGrad(Optimizer):
