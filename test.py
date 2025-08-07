@@ -1,6 +1,7 @@
 import numpy as np
 import struct
 import matplotlib.pyplot as plt
+import time
 from schedulers import ExponentialDecay
 from optimizers import SGD, SGDMomentum, AdaGrad, RMSProp, Adam
 from layers import Linear, ReLU, Sigmoid, SoftmaxCrossEntropy, Conv2D, Flatten, MaxPool2D
@@ -62,13 +63,13 @@ print(data['train_images'].shape)
 layers = [
     Conv2D(1, 2),
     ReLU(),
-    Conv2D(2, 4),
-    ReLU(),
     MaxPool2D(),
     Flatten(),
-    Linear(4 * 14 * 14, 128),
+    Linear(2 * 14 * 14 * 1, 128),
     ReLU(),
-    Linear(128, 10)
+    Linear(128, 32),
+    ReLU(),
+    Linear(32, 10)
     ]
 
 # layers = [
@@ -79,6 +80,23 @@ layers = [
 #     ReLU(),
 #     Linear(32, 10)
 #     ]
+
+# layers = [
+#     Flatten(),
+#     Linear(784, 4096), 
+#     ReLU(),
+#     Linear(4096, 2048), 
+#     ReLU(),
+#     Linear(2048, 1024), 
+#     ReLU(),
+#     Linear(1024, 512), 
+#     ReLU(),
+#     Linear(512, 256), 
+#     ReLU(),
+#     Linear(256, 32),
+#     ReLU(),
+#     Linear(32, 10)
+# ]
 
 scheduler = ExponentialDecay(lr_0=0.001, decay_factor=0.99995)
 
@@ -92,17 +110,17 @@ nn0 = NeuralNetwork("SGD", layers, ExponentialDecay(lr_0=0.01, decay_factor=0.99
 nn1 = NeuralNetwork("Momentum", layers, ExponentialDecay(lr_0=0.01, decay_factor=0.9999), momentum_optimizer)
 nn2 = NeuralNetwork("AdaGrad", layers, ExponentialDecay(lr_0=0.005, decay_factor=0.99995), adagrad_optimizer)
 nn3 = NeuralNetwork("RMSProp", layers, ExponentialDecay(lr_0=0.0005, decay_factor=0.99995), rmsprop_optimizer)
-nn4 = NeuralNetwork("Adam", layers, ExponentialDecay(lr_0=0.002, decay_factor=0.99995), adam_optimizer)
+nn4 = NeuralNetwork("Adam", layers, ExponentialDecay(lr_0=0.001, decay_factor=0.99995), adam_optimizer)
 
-neural_networks = [nn1]
+neural_networks = [nn4]
 accuracies = [[] for _ in range(len(neural_networks))]
 training_loss = [[] for _ in range(len(neural_networks))]
 test_loss = [[] for _ in range(len(neural_networks))]
 
-epochs = 50
-training_size = 500
-test_size = 50
-batch_size = 64
+epochs = 100
+training_size = 600
+test_size = 100
+batch_size = 128
 
 for epoch in range(epochs):
     perm = np.random.permutation(training_size)
@@ -114,6 +132,7 @@ for epoch in range(epochs):
     test_labels = data['test_labels'][perm]
 
     for i in range(len(neural_networks)):
+        t1 = time.time()
         nn = neural_networks[i]
         correct = 0
         total_loss = 0
@@ -152,7 +171,8 @@ for epoch in range(epochs):
 
         training_loss[i].append(total_loss / training_size)
         accuracies[i].append(100 * correct / test_size)
-        print(f"{nn.name}, epoch: {epoch + 1}, accuracy: {100 * correct / test_size}")
+
+        print(f"{nn.name}, epoch: {epoch + 1}, accuracy: {100 * correct / test_size}, time: {round(time.time() - t1, 2)}")
 
 epochs = list(range(1, epochs + 1))
 plt.figure()

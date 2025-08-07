@@ -1,6 +1,7 @@
 import numpy as np
 from scipy import signal
 import math 
+from numpy.lib.stride_tricks import as_strided
 np.random.seed(322)
 
 class Layer:
@@ -99,6 +100,28 @@ class Conv2D(Layer):
         output_width = width + 2 * self.padding - self.kernel_size + 1
         output = np.zeros((m, self.output_channels, output_height, output_width))
 
+        # X = np.pad(X, ((0, 0), (0, 0), (self.padding, self.padding), (self.padding, self.padding)))
+        # shape = (m, self.input_channels, output_height, output_width, self.kernel_size, self.kernel_size)
+        # strides = (
+        #     X.strides[0],
+        #     X.strides[1],
+        #     X.strides[2] * 1, # stride = 1
+        #     X.strides[3] * 1,
+        #     X.strides[2],
+        #     X.strides[3]
+        # )
+
+        # windows = as_strided(X, shape, strides)
+
+        # for input_channel in range(self.input_channels):
+        #     for output_channel in range(self.output_channels):
+        #         for i in range(output_height):
+        #             for j in range(output_width):
+        #                 # print(windows[batch, :, i, j].shape, self.weights[output_channel].shape, output.shape)
+        #                 output[:, output_channel, i, j] += np.sum(windows[:, input_channel, i, j] * self.weights[output_channel, input_channel])
+        
+        # return output + self.biases
+
         for batch in range(m):
             for output_channel in range(self.output_channels):
                 for input_channel in range(self.input_channels):
@@ -128,50 +151,61 @@ class Conv2D(Layer):
         optimizer.step(lr, self.parameters, [dW, db])
 
         return nxt
-
+    
 class MaxPool2D(Layer):
     def __init__(self, k=2, stride=None, padding=0):
         super().__init__()
         self.k = k
-        self.padding = padding
         self.stride = stride if stride else k
+        self.padding = padding
 
     def forward(self, X):
         self.prev_shape = X.shape
         m, channels, height, width = X.shape
-
-        # output_height = math.ceil((height + 2 * self.padding) / self.stride)
-        # output_width = math.ceil((width + 2 * self.padding) / self.stride)
         output_height = (height - self.k) // self.stride + 1
         output_width = (width - self.k) // self.stride + 1
 
-        output = np.zeros((m, channels, output_height, output_width))
+        shape = (m, channels, output_height, output_width, self.k, self.k)
+        strides = (
+            X.strides[0],
+            X.strides[1],
+            X.strides[2] * self.stride,
+            X.strides[3] * self.stride,
+            X.strides[2],
+            X.strides[3]
+        )
+        
+        windows = as_strided(X, shape, strides)
+        flattened_windows = windows.reshape(m, channels, output_height, output_width, -1)
+        output = np.max(flattened_windows, axis=-1)
+        flattened_indices = np.argmax(flattened_windows, axis=-1)
         self.indices = np.zeros((m, channels, output_height, output_width, 2), dtype=int)
 
-        for batch in range(m):
-            for channel in range(channels):
-                for i in range(output_height):
-                    for j in range(output_width):
-                        a = i * self.stride
-                        b = j * self.stride
+        for i in range(output_height):
+            for j in range(output_width):
+                # top-left window corner position
+                h_start = i * self.stride
+                w_start = j * self.stride
 
-                        window = X[batch, channel, a : a + self.k, b : b + self.k]
-                        output[batch, channel, i, j] = np.max(window)
+                # position within that window
+                h_idx = flattened_indices[:, :, i, j] // self.k 
+                w_idx = flattened_indices[:, :, i, j] % self.k
 
-                        max_idx = np.unravel_index(np.argmax(window), window.shape)
-                        self.indices[batch, channel, i, j] = (a + max_idx[0], b + max_idx[1])
-
+                self.indices[:, :, i, j, 0] = h_start + h_idx
+                self.indices[:, :, i, j, 1] = w_start + w_idx
+        
         return output
-    
+        
     def backward(self, X, scheduler, optimizer):
         m, channels, height, width = self.prev_shape
         output = np.zeros(self.prev_shape)
 
-        for batch in range(m):
-            for channel in range(channels):
-                for i in range(X.shape[2]):
-                    for j in range(X.shape[3]):
-                        h_idx, w_idx = self.indices[batch, channel, i, j]
-                        output[batch, channel, h_idx, w_idx] += X[batch, channel, i, j]
+        for i in range(X.shape[2]):
+            for j in range(X.shape[3]):
+                h_idx = self.indices[:, :, i, j, 0]
+                w_idx = self.indices[:, :, i, j, 1]
+                batch_indices = np.expand_dims(np.arange(m), axis=-1)
+                channel_indices = np.expand_dims(np.arange(channels), axis=0)
+                output[batch_indices, channel_indices, h_idx, w_idx] += X[:, :, i, j]
         
         return output
