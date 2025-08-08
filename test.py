@@ -1,34 +1,13 @@
-import numpy as np
-import struct
+from config import USE_GPU
+if USE_GPU: import cupy as np
+else: import numpy as np
 import matplotlib.pyplot as plt
 import time
 from schedulers import ExponentialDecay
 from optimizers import SGD, SGDMomentum, AdaGrad, RMSProp, Adam
+from data_loading import load_mnist_dataset, load_corrupted_mnist_dataset, load_cifar10_dataset
 from layers import Linear, ReLU, Sigmoid, SoftmaxCrossEntropy, Conv2D, Flatten, MaxPool2D
-np.random.seed(32)
-
-def load_mnist_dataset():
-    """Load all MNIST files"""
-    files = {
-        'train_images': 'data/train-images.idx3-ubyte',
-        'train_labels': 'data/train-labels.idx1-ubyte',
-        'test_images': 'data/t10k-images.idx3-ubyte',
-        'test_labels': 'data/t10k-labels.idx1-ubyte'
-    }
-    
-    data = {}
-    
-    for key, filename in files.items():
-        with open(filename, 'rb') as f:
-            if 'images' in key:
-                magic, num, rows, cols = struct.unpack('>IIII', f.read(16))
-                data[key] = np.frombuffer(f.read(), dtype=np.uint8)
-                data[key] = data[key].reshape(num, rows, cols)
-            else:
-                magic, num = struct.unpack('>II', f.read(8))
-                data[key] = np.frombuffer(f.read(), dtype=np.uint8)
-    
-    return data
+# np.random.seed(32)
 
 class NeuralNetwork: 
     def __init__(self, name, layers, scheduler, optimizer):
@@ -42,8 +21,10 @@ class NeuralNetwork:
         self.loss_function = SoftmaxCrossEntropy()
 
     def forward_pass(self, X, Y):
+        # t1 = time.time()
         for layer in self.layers:
             X = layer.forward(X)
+        # print("forward", time.time() - t1)
         
         inference, loss = self.loss_function.forward(X, Y)
         self.prev_activation = inference
@@ -51,30 +32,59 @@ class NeuralNetwork:
     
     def backward_pass(self, Y):
         delta = self.prev_activation - Y
-
+        # t1 = time.time()
         for layer in reversed(self.layers):
             delta = layer.backward(delta, self.scheduler, self.optimizer)
-            
-data = load_mnist_dataset()
+        # print("backward", time.time() - t1)
 
-print("making")
-print(data['train_images'].shape)
+print("using gpu" if USE_GPU else "using cpu")
+data = load_cifar10_dataset()
+# plt.imshow(data['train_images'][0], cmap='gray'); plt.show()
+
+# layers = [
+#     Conv2D(1, 32),
+#     ReLU(),
+#     Conv2D(16, 64),
+#     ReLU(),
+#     MaxPool2D(),
+#     Flatten(),
+#     Linear(64 * 14 * 14, 1024),
+#     ReLU(),
+#     Linear(1024, 128),
+#     ReLU(),
+#     Linear(128, 32),
+#     ReLU(),
+#     Linear(32, 10)
+#     ]
+
+# layers = [
+#     Conv2D(3, 16),
+#     ReLU(),
+#     Conv2D(16, 32),
+#     ReLU(),
+#     MaxPool2D(),
+#     Flatten(),
+#     Linear(32 * 16 * 16, 256),
+#     ReLU(),
+#     Linear(256, 10)
+# ]
 
 layers = [
-    Conv2D(1, 2),
+    Conv2D(3, 32),
     ReLU(),
+    Conv2D(32, 32),
     MaxPool2D(),
     Flatten(),
-    Linear(2 * 14 * 14 * 1, 128),
+    Linear(32 * 16 * 16, 128),
     ReLU(),
-    Linear(128, 32),
-    ReLU(),
-    Linear(32, 10)
-    ]
+    Linear(128, 10)
+]
 
 # layers = [
 #     Flatten(),
-#     Linear(784, 128), 
+#     Linear(32 * 32 * 3, 256),
+#     ReLU(),
+#     Linear(256, 128), 
 #     ReLU(),
 #     Linear(128, 32),
 #     ReLU(),
@@ -83,13 +93,13 @@ layers = [
 
 # layers = [
 #     Flatten(),
-#     Linear(784, 4096), 
-#     ReLU(),
-#     Linear(4096, 2048), 
-#     ReLU(),
-#     Linear(2048, 1024), 
-#     ReLU(),
-#     Linear(1024, 512), 
+#     # Linear(784, 4096), 
+#     # ReLU(),
+#     # Linear(4096, 2048), 
+#     # ReLU(),
+#     # Linear(784, 1024), 
+#     # ReLU(),
+#     Linear(784, 512), 
 #     ReLU(),
 #     Linear(512, 256), 
 #     ReLU(),
@@ -118,16 +128,16 @@ training_loss = [[] for _ in range(len(neural_networks))]
 test_loss = [[] for _ in range(len(neural_networks))]
 
 epochs = 100
-training_size = 600
-test_size = 100
-batch_size = 128
+training_size = 50000
+test_size = 10000
+batch_size = 512
 
 for epoch in range(epochs):
-    perm = np.random.permutation(training_size)
+    perm = np.random.choice(data['train_images'].shape[0], training_size)
     train_images = data['train_images'][perm]
     train_labels = data['train_labels'][perm]
 
-    perm = np.random.permutation(test_size)
+    perm = np.random.choice(data['test_images'].shape[0], test_size)
     test_images = data['test_images'][perm]
     test_labels = data['test_labels'][perm]
 
@@ -140,9 +150,7 @@ for epoch in range(epochs):
         for start in range(0, test_size, batch_size):
             end = min(start + batch_size, test_size)
             effective_batch_size = end - start
-
-            Xb_test = test_images[start : end].reshape(-1, 1, 28, 28) / 255
-            # Xb_test = test_images[start : end].reshape(-1, 784) / 255
+            Xb_test = test_images[start : end].reshape(effective_batch_size, -1, 32, 32) / 255
             Yb_indices = test_labels[start : end]
             Yb_test = np.eye(10)[Yb_indices]
 
@@ -159,8 +167,7 @@ for epoch in range(epochs):
             end = min(start + batch_size, training_size)
             effective_batch_size = end - start
 
-            Xb = train_images[start : end].reshape(-1, 1, 28, 28) / 255
-            # Xb = train_images[start : end].reshape(-1, 784) / 255
+            Xb = train_images[start : end].reshape(effective_batch_size, -1, 32, 32) / 255
             Yb_indices = train_labels[start : end]
             Yb = np.eye(10)[Yb_indices]
             

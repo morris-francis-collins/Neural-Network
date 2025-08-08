@@ -1,4 +1,6 @@
-import numpy as np
+from config import USE_GPU
+if USE_GPU: import cupy as np
+else: import numpy as np
 
 class Optimizer:
     def __init__(self):

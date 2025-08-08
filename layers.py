@@ -1,8 +1,12 @@
-import numpy as np
+from config import USE_GPU
+if USE_GPU: 
+    import cupy as np
+    from cupy.lib.stride_tricks import as_strided
+else: 
+    import numpy as np
+    from numpy.lib.stride_tricks import as_strided
 from scipy import signal
-import math 
-from numpy.lib.stride_tricks import as_strided
-np.random.seed(322)
+# np.random.seed(322)
 
 class Layer:
     def __init__(self):
@@ -90,67 +94,119 @@ class Conv2D(Layer):
         self.kernel_size = kernel_size
         self.padding = padding
         self.weights = np.random.randn(output_channels, input_channels, kernel_size, kernel_size) * np.sqrt(2.0 / (input_channels * kernel_size * kernel_size))
-        self.biases = np.zeros((self.output_channels, 28, 28))
+        self.biases = np.zeros((self.output_channels, 32, 32))
         self.parameters = [self.weights, self.biases]
         
     def forward(self, X):
-        self.prev = X
+        self.prev_input = X
         m, _, height, width = X.shape
         output_height = height + 2 * self.padding - self.kernel_size + 1
         output_width = width + 2 * self.padding - self.kernel_size + 1
-        output = np.zeros((m, self.output_channels, output_height, output_width))
 
-        # X = np.pad(X, ((0, 0), (0, 0), (self.padding, self.padding), (self.padding, self.padding)))
-        # shape = (m, self.input_channels, output_height, output_width, self.kernel_size, self.kernel_size)
-        # strides = (
-        #     X.strides[0],
-        #     X.strides[1],
-        #     X.strides[2] * 1, # stride = 1
-        #     X.strides[3] * 1,
-        #     X.strides[2],
-        #     X.strides[3]
-        # )
+        X = np.pad(X, ((0, 0), (0, 0), (self.padding, self.padding), (self.padding, self.padding)))
+        shape = (m, self.input_channels, output_height, output_width, self.kernel_size, self.kernel_size)
+        strides = (
+            X.strides[0],
+            X.strides[1],
+            X.strides[2], # stride = 1
+            X.strides[3], # stride = 1
+            X.strides[2],
+            X.strides[3]
+        )
 
-        # windows = as_strided(X, shape, strides)
+        windows = as_strided(X, shape, strides)
+        windows_2d = windows.transpose(0, 2, 3, 1, 4, 5).reshape(
+            m * output_height * output_width,
+            self.input_channels * self.kernel_size * self.kernel_size
+        )
+        weights_2d = self.weights.reshape(
+            self.output_channels,
+            self.input_channels * self.kernel_size * self.kernel_size
+        )
+        
+        output_2d = windows_2d @ weights_2d.T
+        output = output_2d.reshape(m, output_height, output_width, self.output_channels).transpose(0, 3, 1, 2)
 
-        # for input_channel in range(self.input_channels):
+        return output + self.biases        
+
+        # for batch in range(m):
         #     for output_channel in range(self.output_channels):
-        #         for i in range(output_height):
-        #             for j in range(output_width):
-        #                 # print(windows[batch, :, i, j].shape, self.weights[output_channel].shape, output.shape)
-        #                 output[:, output_channel, i, j] += np.sum(windows[:, input_channel, i, j] * self.weights[output_channel, input_channel])
-        
-        # return output + self.biases
-
-        for batch in range(m):
-            for output_channel in range(self.output_channels):
-                for input_channel in range(self.input_channels):
-                    output[batch, output_channel] += signal.correlate2d(
-                        np.pad(X[batch, input_channel], self.padding),
-                        self.weights[output_channel, input_channel],
-                        mode='valid'
-                    )
-                output[batch, output_channel] += self.biases[output_channel]
-
-        return output
-        
+        #         for input_channel in range(self.input_channels):
+        #             output[batch, output_channel] += signal.correlate2d(
+        #                 np.pad(X[batch, input_channel], self.padding),
+        #                 self.weights[output_channel, input_channel],
+        #                 mode='valid'
+        #             )
+        #         output[batch, output_channel] += self.biases[output_channel]
+                
     def backward(self, X, scheduler, optimizer):
-        m = X.shape[0]
-        dW = np.zeros_like(self.weights)
+        input_height, input_width = self.prev_input.shape[2], self.prev_input.shape[3]
+        m, _, output_height, output_width = X.shape
+        # dW = np.zeros_like(self.weights)
+        # nxt = np.zeros_like(self.prev_input)
+
+        self.prev_input = np.pad(self.prev_input, ((0, 0), (0, 0), (self.padding, self.padding), (self.padding, self.padding)))
+        
+        shape = (m, self.input_channels, output_height, output_width, self.kernel_size, self.kernel_size)
+        strides = (
+            self.prev_input.strides[0],
+            self.prev_input.strides[1],
+            self.prev_input.strides[2], # stride = 1
+            self.prev_input.strides[3], # stride = 1
+            self.prev_input.strides[2],
+            self.prev_input.strides[3]
+        )
+
+        windows = as_strided(self.prev_input, shape, strides)
+        windows_2d = windows.transpose(0, 2, 3, 1, 4, 5).reshape(
+            m * (output_height ) * (output_width ),
+            self.input_channels * self.kernel_size * self.kernel_size
+        )
+        output_grad_2d = X.transpose(0, 2, 3, 1).reshape(
+            m * (output_height ) * (output_width), 
+            self.output_channels,
+        )
+
+        dW_2d = output_grad_2d.T @ windows_2d
+        dW = dW_2d.reshape(self.weights.shape) / m
         db = np.sum(X, axis=0) / m
-        nxt = np.zeros_like(self.prev) 
 
-        for batch in range(m):
-            for output_channel in range(self.output_channels):
-                for input_channel in range(self.input_channels):
-                    dW[output_channel, input_channel] += signal.correlate2d(self.prev[batch, input_channel], X[batch, output_channel], mode='valid')
-                    nxt[batch, input_channel] += signal.convolve2d(np.pad(X[batch, output_channel], self.padding), self.weights[output_channel, input_channel], mode ='valid')
+        X = np.pad(X, ((0, 0), (0, 0), (self.padding, self.padding), (self.padding, self.padding)))
+        shape = (m, self.output_channels, input_height, input_width, self.kernel_size, self.kernel_size)
+        strides = (
+            X.strides[0],
+            X.strides[1],
+            X.strides[2], # stride = 1
+            X.strides[3], # stride = 1
+            X.strides[2],
+            X.strides[3]
+        )
 
-        dW /= m
+        windows = as_strided(X, shape, strides)
+        windows_2d = windows.transpose(0, 2, 3, 1, 4, 5).reshape(
+            m * input_height * input_width,
+            self.output_channels * self.kernel_size * self.kernel_size
+        )
+
+        rotated_weights = self.weights[:, :, ::-1, ::-1]
+        weights_2d = rotated_weights.transpose(1, 0, 2, 3).reshape(
+            self.input_channels,
+            self.output_channels * self.kernel_size * self.kernel_size
+        )
+
+        grad_input_2d = windows_2d @ weights_2d.T
+        grad_input = grad_input_2d.reshape(m, output_height, output_width, self.input_channels).transpose(0, 3, 1, 2)
+
+        # for batch in range(m):
+        #     for output_channel in range(self.output_channels):
+        #         for input_channel in range(self.input_channels):
+        #               dW[output_channel, input_channel] += signal.correlate2d(self.prev[batch, input_channel], X[batch, output_channel], mode='valid')
+        #               nxt[batch, input_channel] += signal.convolve2d(np.pad(X[batch, output_channel], self.padding), self.weights[output_channel, input_channel], mode ='valid')
+
         lr = scheduler.step()
         optimizer.step(lr, self.parameters, [dW, db])
 
-        return nxt
+        return grad_input
     
 class MaxPool2D(Layer):
     def __init__(self, k=2, stride=None, padding=0):
