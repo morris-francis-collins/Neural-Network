@@ -3,42 +3,16 @@ if USE_GPU: import cupy as np
 else: import numpy as np
 import matplotlib.pyplot as plt
 import time
+from neural_network import NeuralNetwork
 from schedulers import ExponentialDecay
 from optimizers import SGD, SGDMomentum, AdaGrad, RMSProp, Adam
 from data_loading import load_mnist_dataset, load_corrupted_mnist_dataset, load_cifar10_dataset
-from layers import Linear, ReLU, Sigmoid, SoftmaxCrossEntropy, Conv2D, Flatten, MaxPool2D
-# np.random.seed(32)
-
-class NeuralNetwork: 
-    def __init__(self, name, layers, scheduler, optimizer):
-        self.name = name
-        self.layers = layers
-        self.scheduler = scheduler
-        self.optimizer = optimizer
-        self.weights = []
-        self.biases = []
-
-        self.loss_function = SoftmaxCrossEntropy()
-
-    def forward_pass(self, X, Y):
-        # t1 = time.time()
-        for layer in self.layers:
-            X = layer.forward(X)
-        # print("forward", time.time() - t1)
-        
-        inference, loss = self.loss_function.forward(X, Y)
-        self.prev_activation = inference
-        return inference, loss 
-    
-    def backward_pass(self, Y):
-        delta = self.prev_activation - Y
-        # t1 = time.time()
-        for layer in reversed(self.layers):
-            delta = layer.backward(delta, self.scheduler, self.optimizer)
-        # print("backward", time.time() - t1)
+from layers import Linear, ReLU, Sigmoid, Conv2D, Flatten, MaxPool2D
+from loss_functions import SoftmaxCrossEntropy
+np.random.seed(32)
 
 print("using gpu" if USE_GPU else "using cpu")
-data = load_cifar10_dataset()
+data = load_corrupted_mnist_dataset()
 # plt.imshow(data['train_images'][0], cmap='gray'); plt.show()
 
 # layers = [
@@ -58,38 +32,46 @@ data = load_cifar10_dataset()
 #     ]
 
 # layers = [
-#     Conv2D(3, 16),
+#     Conv2D(1, 16),
 #     ReLU(),
 #     Conv2D(16, 32),
 #     ReLU(),
 #     MaxPool2D(),
 #     Flatten(),
-#     Linear(32 * 16 * 16, 256),
+#     Linear(32 * 14 * 14, 256),
 #     ReLU(),
 #     Linear(256, 10)
 # ]
 
-layers = [
-    Conv2D(3, 32),
-    ReLU(),
-    Conv2D(32, 32),
-    MaxPool2D(),
-    Flatten(),
-    Linear(32 * 16 * 16, 128),
-    ReLU(),
-    Linear(128, 10)
-]
-
 # layers = [
-#     Flatten(),
-#     Linear(32 * 32 * 3, 256),
+#     Conv2D(3, 32),
 #     ReLU(),
-#     Linear(256, 128), 
+#     Conv2D(32, 32),
 #     ReLU(),
-#     Linear(128, 32),
-#     ReLU(),
-#     Linear(32, 10)
-#     ]
+#     MaxPool2D(),
+
+#     # Conv2D(32, 64),
+#     # ReLU(),
+#     # Conv2D(64, 64),
+#     # ReLU(),
+#     # MaxPool2D(),
+
+#     # Flatten(),
+#     # Linear(32 * 14 * 14, 256),
+#     # ReLU(),
+#     # Linear(256, 10)
+# ]
+
+layers = [
+    Flatten(),
+    Linear(784, 256),
+    ReLU(),
+    Linear(256, 128), 
+    ReLU(),
+    Linear(128, 32),
+    ReLU(),
+    Linear(32, 10)
+    ]
 
 # layers = [
 #     Flatten(),
@@ -116,18 +98,18 @@ adagrad_optimizer = AdaGrad()
 rmsprop_optimizer = RMSProp()
 adam_optimizer = Adam()
 
-nn0 = NeuralNetwork("SGD", layers, ExponentialDecay(lr_0=0.01, decay_factor=0.9999), sgd_optimizer)
-nn1 = NeuralNetwork("Momentum", layers, ExponentialDecay(lr_0=0.01, decay_factor=0.9999), momentum_optimizer)
-nn2 = NeuralNetwork("AdaGrad", layers, ExponentialDecay(lr_0=0.005, decay_factor=0.99995), adagrad_optimizer)
-nn3 = NeuralNetwork("RMSProp", layers, ExponentialDecay(lr_0=0.0005, decay_factor=0.99995), rmsprop_optimizer)
-nn4 = NeuralNetwork("Adam", layers, ExponentialDecay(lr_0=0.001, decay_factor=0.99995), adam_optimizer)
+nn0 = NeuralNetwork("SGD", layers, ExponentialDecay(lr_0=0.01, decay_factor=0.9999), sgd_optimizer, SoftmaxCrossEntropy())
+nn1 = NeuralNetwork("Momentum", layers, ExponentialDecay(lr_0=0.01, decay_factor=0.9999), momentum_optimizer, SoftmaxCrossEntropy())
+nn2 = NeuralNetwork("AdaGrad", layers, ExponentialDecay(lr_0=0.005, decay_factor=0.99995), adagrad_optimizer, SoftmaxCrossEntropy())
+nn3 = NeuralNetwork("RMSProp", layers, ExponentialDecay(lr_0=0.0005, decay_factor=0.99995), rmsprop_optimizer, SoftmaxCrossEntropy())
+nn4 = NeuralNetwork("Adam", layers, ExponentialDecay(lr_0=0.001, decay_factor=0.99995), adam_optimizer, SoftmaxCrossEntropy())
 
 neural_networks = [nn4]
 accuracies = [[] for _ in range(len(neural_networks))]
 training_loss = [[] for _ in range(len(neural_networks))]
 test_loss = [[] for _ in range(len(neural_networks))]
 
-epochs = 100
+epochs = 10
 training_size = 50000
 test_size = 10000
 batch_size = 512
@@ -150,11 +132,12 @@ for epoch in range(epochs):
         for start in range(0, test_size, batch_size):
             end = min(start + batch_size, test_size)
             effective_batch_size = end - start
-            Xb_test = test_images[start : end].reshape(effective_batch_size, -1, 32, 32) / 255
+            Xb_test = test_images[start : end].reshape(effective_batch_size, -1, 28, 28) / 255
             Yb_indices = test_labels[start : end]
             Yb_test = np.eye(10)[Yb_indices]
 
-            probabilities, loss = nn.forward_pass(Xb_test, Yb_test)
+            probabilities = nn.predict(Xb_test)
+            loss = nn.loss(Xb_test, Yb_test)
             total_loss += loss * effective_batch_size
 
             predictions = np.argmax(probabilities, axis=1)
@@ -167,14 +150,13 @@ for epoch in range(epochs):
             end = min(start + batch_size, training_size)
             effective_batch_size = end - start
 
-            Xb = train_images[start : end].reshape(effective_batch_size, -1, 32, 32) / 255
+            Xb = train_images[start : end].reshape(effective_batch_size, -1, 28, 28) / 255
             Yb_indices = train_labels[start : end]
             Yb = np.eye(10)[Yb_indices]
             
-            _, loss = nn.forward_pass(Xb, Yb)
+            probabilities = nn.train(Xb, Yb)
+            loss = nn.loss(Xb, Yb)
             total_loss += loss * effective_batch_size
-
-            nn.backward_pass(Yb)     
 
         training_loss[i].append(total_loss / training_size)
         accuracies[i].append(100 * correct / test_size)

@@ -61,21 +61,6 @@ class Sigmoid(Layer):
         sigmoid = self.sigmoid(self.prev_z)
         return X * sigmoid * (1 - sigmoid)
     
-class SoftmaxCrossEntropy(Layer):
-    def forward(self, X, Y):
-        X -= np.max(X, axis=1, keepdims=True)
-        exp_X = np.exp(X)
-        self.probabilities = exp_X / np.sum(exp_X, axis=1, keepdims=True)
-
-        m = X.shape[0]
-        log_probabilities = np.log(self.probabilities + 1e-10)
-        loss = -np.sum(Y * log_probabilities) / m
-    
-        return self.probabilities, loss
-
-    def backward(self, Y):
-        return self.probabilities - Y
-
 class Flatten(Layer):
     def __init__(self):
         super().__init__()
@@ -94,14 +79,19 @@ class Conv2D(Layer):
         self.kernel_size = kernel_size
         self.padding = padding
         self.weights = np.random.randn(output_channels, input_channels, kernel_size, kernel_size) * np.sqrt(2.0 / (input_channels * kernel_size * kernel_size))
-        self.biases = np.zeros((self.output_channels, 32, 32))
-        self.parameters = [self.weights, self.biases]
+        self.biasinit = False
+        
         
     def forward(self, X):
         self.prev_input = X
         m, _, height, width = X.shape
         output_height = height + 2 * self.padding - self.kernel_size + 1
         output_width = width + 2 * self.padding - self.kernel_size + 1
+
+        if not self.biasinit:
+            self.biases = np.zeros((self.output_channels, output_height, output_width))
+            self.parameters = [self.weights, self.biases]
+            self.biasinit = True
 
         X = np.pad(X, ((0, 0), (0, 0), (self.padding, self.padding), (self.padding, self.padding)))
         shape = (m, self.input_channels, output_height, output_width, self.kernel_size, self.kernel_size)
@@ -235,33 +225,28 @@ class MaxPool2D(Layer):
         flattened_windows = windows.reshape(m, channels, output_height, output_width, -1)
         output = np.max(flattened_windows, axis=-1)
         flattened_indices = np.argmax(flattened_windows, axis=-1)
-        self.indices = np.zeros((m, channels, output_height, output_width, 2), dtype=int)
-
-        for i in range(output_height):
-            for j in range(output_width):
-                # top-left window corner position
-                h_start = i * self.stride
-                w_start = j * self.stride
-
-                # position within that window
-                h_idx = flattened_indices[:, :, i, j] // self.k 
-                w_idx = flattened_indices[:, :, i, j] % self.k
-
-                self.indices[:, :, i, j, 0] = h_start + h_idx
-                self.indices[:, :, i, j, 1] = w_start + w_idx
+        self.indices = flattened_indices
         
         return output
         
     def backward(self, X, scheduler, optimizer):
-        m, channels, height, width = self.prev_shape
+        m, channels, input_height, input_width = self.prev_shape
+        output_height, output_width = X.shape[2], X.shape[3]
         output = np.zeros(self.prev_shape)
 
-        for i in range(X.shape[2]):
-            for j in range(X.shape[3]):
-                h_idx = self.indices[:, :, i, j, 0]
-                w_idx = self.indices[:, :, i, j, 1]
-                batch_indices = np.expand_dims(np.arange(m), axis=-1)
-                channel_indices = np.expand_dims(np.arange(channels), axis=0)
-                output[batch_indices, channel_indices, h_idx, w_idx] += X[:, :, i, j]
-        
+        h_start, w_start = np.meshgrid(
+            self.stride * np.arange(output_height), 
+            self.stride * np.arange(output_width), 
+            indexing='ij'
+        )
+
+        h_offset = self.indices // self.k
+        w_offset = self.indices % self.k
+
+        batch_indices = np.arange(m)[:, None, None, None]
+        channel_indices = np.arange(channels)[None, :, None, None]
+        h_indices = h_start[None, None, :, :] + h_offset
+        w_indices = w_start[None, None, :, :] + w_offset
+
+        np.add.at(output, (batch_indices, channel_indices, h_indices, w_indices), X)
         return output
